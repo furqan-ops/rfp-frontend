@@ -427,14 +427,19 @@ function PipelineStepper({ active }: { active: number }) {
 function Sandbox({
   onResult,
   onStepChange,
+  onInspectSource,
+  onReviewItem,
 }: {
   onResult: (r: RfpResult) => void
   onStepChange: (step: number) => void
+  onInspectSource: (r: RfpResult) => void
+  onReviewItem: (r: RfpResult) => void
 }) {
   const [question, setQuestion] = useState('')
   const [category, setCategory] = useState('Security')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [latestResult, setLatestResult] = useState<RfpResult | null>(null)
   const timerRef = useRef<number | null>(null)
 
   const clearStepTimer = () => {
@@ -472,8 +477,10 @@ function Sandbox({
 
       if (!response.ok) throw new Error('Live endpoint unavailable')
       const data: RfpResult = await response.json()
+      const liveRecord: RfpResult = { ...data, source: 'live' }
       onStepChange(4)
-      onResult({ ...data, source: 'live' })
+      setLatestResult(liveRecord)
+      onResult(liveRecord)
     } catch {
       setError('Live test failed. The live review service may not be running.')
     } finally {
@@ -484,7 +491,7 @@ function Sandbox({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto]">
         <div>
           <label htmlFor="question" className="sr-only">
@@ -527,7 +534,8 @@ function Sandbox({
           {loading ? 'Running…' : 'Run'}
         </button>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Quick examples:</span>
         {QUICK_FILL_PROMPTS.map(item => (
           <button
             key={item.label}
@@ -544,13 +552,101 @@ function Sandbox({
           {error}
         </p>
       )}
+
+      {latestResult && (
+        <div
+          data-testid="sandbox-live-result"
+          className={`mt-5 rounded-xl border p-5 transition-all ${
+            latestResult.needs_human_review
+              ? 'border-amber-300/90 bg-amber-50/60 dark:border-amber-800/70 dark:bg-amber-950/20'
+              : 'border-teal-700/25 bg-teal-50/40 dark:border-teal-500/30 dark:bg-teal-950/20'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-3 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-teal-700 px-2.5 py-0.5 text-xs font-semibold text-white">
+                Live result
+              </span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                {latestResult.question_id} · {latestResult.category}
+              </span>
+              <StatusChip value={latestResult.compliance_status} />
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                How sure the system is:{' '}
+                <span
+                  className={
+                    latestResult.confidence_score >= 0.8
+                      ? 'text-teal-700 dark:text-teal-400'
+                      : 'text-amber-800 dark:text-amber-300'
+                  }
+                >
+                  {latestResult.confidence_score.toFixed(2)}
+                </span>
+              </span>
+              <span className="rounded-full border border-slate-300 bg-white px-2.5 py-0.5 font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                {formatRoute(latestResult.routing_action)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3.5 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+            <div>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Question</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {latestResult.question}
+              </p>
+              <p className="mt-2.5 text-xs font-medium text-slate-500 dark:text-slate-400">Answer</p>
+              <p className="mt-0.5 text-sm leading-6 text-slate-800 dark:text-slate-200">
+                {latestResult.answer}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-3.5 dark:border-slate-800 dark:bg-slate-900">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Source document</p>
+              <p className="mt-0.5 break-words text-xs font-semibold text-teal-700 dark:text-teal-400">
+                {latestResult.source_document} ({latestResult.section_reference})
+              </p>
+              <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">Relevant policy text</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                {latestResult.verbatim_quote}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onInspectSource(latestResult)}
+                  className={`rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 ${FOCUS_RING}`}
+                >
+                  Source details
+                </button>
+                {latestResult.needs_human_review && !latestResult.resolved_decision && (
+                  <button
+                    type="button"
+                    onClick={() => onReviewItem(latestResult)}
+                    className={`rounded-md bg-teal-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-800 ${FOCUS_RING}`}
+                  >
+                    Review now
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function StatusChip({ value }: { value: RfpResult['compliance_status'] }) {
+  const isSupported = value === 'FULLY_SUPPORTED'
   return (
-    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+        isSupported
+          ? 'border-teal-700/25 bg-teal-50/70 text-teal-800 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-300'
+          : 'border-amber-300/90 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+      }`}
+    >
       {formatStatus(value)}
     </span>
   )
@@ -901,21 +997,38 @@ function ResponseMatrix({
               className={`rounded-lg text-left ${FOCUS_RING}`}
             >
               <span className="text-xs text-slate-500 dark:text-slate-400">{r.category}</span>
-              <p className="mt-1 text-sm font-semibold leading-5 text-slate-900 dark:text-slate-100">{r.question}</p>
+              <p className="mt-1 text-sm font-semibold leading-5 text-slate-900 group-hover:text-teal-800 dark:text-slate-100 dark:group-hover:text-teal-300">
+                {r.question}
+              </p>
               <p className="mt-1.5 line-clamp-2 text-sm font-normal leading-6 text-slate-600 dark:text-slate-400">
                 {r.answer}
+              </p>
+              <p className="mt-2 inline-flex flex-wrap items-center gap-1.5 text-xs font-medium text-teal-700 group-hover:underline dark:text-teal-400">
+                <span>Source: {r.source_document}</span>
+                <span aria-hidden="true">·</span>
+                <span>View source details →</span>
               </p>
             </button>
             <div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-500 dark:text-slate-400">How sure the system is</span>
-                <span className="font-semibold text-teal-700 dark:text-teal-400">
+                <span
+                  className={`font-semibold ${
+                    r.confidence_score >= 0.8
+                      ? 'text-teal-700 dark:text-teal-400'
+                      : 'text-amber-800 dark:text-amber-300'
+                  }`}
+                >
                   {r.confidence_score.toFixed(2)}
                 </span>
               </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                 <div
-                  className="h-full rounded-full bg-teal-700 transition-all duration-300 dark:bg-teal-400"
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    r.confidence_score >= 0.8
+                      ? 'bg-teal-700 dark:bg-teal-400'
+                      : 'bg-amber-600 dark:bg-amber-400'
+                  }`}
                   style={{ width: `${r.confidence_score * 100}%` }}
                 />
               </div>
@@ -929,7 +1042,13 @@ function ResponseMatrix({
                   {r.resolved_decision === 'APPROVED' ? 'Approved by reviewer' : 'Rejected by reviewer'}
                 </span>
               ) : (
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <span
+                  className={`text-xs font-semibold ${
+                    r.routing_action === 'AUTO_APPROVED'
+                      ? 'text-slate-700 dark:text-slate-300'
+                      : 'text-amber-900 dark:text-amber-300'
+                  }`}
+                >
                   {formatRoute(r.routing_action)}
                 </span>
               )}
@@ -975,7 +1094,7 @@ function HitlQueue({ results, onReview }: { results: RfpResult[]; onReview: (r: 
     <section
       id="review-queue"
       aria-labelledby="queue-heading"
-      className="scroll-mt-8 rounded-xl border border-amber-200/90 bg-amber-50/70 p-6 dark:border-amber-900/50 dark:bg-amber-950/20"
+      className="scroll-mt-24 rounded-xl border border-amber-200/90 bg-amber-50/70 p-6 xl:sticky xl:top-24 dark:border-amber-900/50 dark:bg-amber-950/20"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -994,7 +1113,7 @@ function HitlQueue({ results, onReview }: { results: RfpResult[]; onReview: (r: 
         {escalated.map(r => (
           <div
             key={r.question_id}
-            className="rounded-xl border border-amber-200/80 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+            className="rounded-xl border border-amber-200/80 bg-white p-4 shadow-sm transition hover:border-amber-300 dark:border-slate-800 dark:bg-slate-900"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1038,6 +1157,11 @@ export default function RfpDashboard() {
   const [review, setReview] = useState<RfpResult | null>(null)
   const [reviewerName, setReviewerName] = useState('')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+
+  const pendingReviewCount = useMemo(
+    () => results.filter(r => r.needs_human_review && !r.resolved_decision).length,
+    [results]
+  )
 
   useEffect(() => {
     setMounted(true)
@@ -1128,18 +1252,48 @@ export default function RfpDashboard() {
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-6 py-4 lg:px-10">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-teal-700 text-white">
-              <ShieldCheck className="size-5" aria-hidden="true" />
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-teal-700 text-white shadow-sm">
+                <ShieldCheck className="size-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                  RFP Auto-Responder
+                </h1>
+                <p className="mt-0.5 hidden text-xs text-slate-500 sm:block dark:text-slate-400">
+                  Security questionnaire review tool
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                RFP Auto-Responder
-              </h1>
-              <p className="mt-0.5 hidden text-xs text-slate-500 sm:block dark:text-slate-400">
-                Security questionnaire review tool
-              </p>
-            </div>
+            <nav aria-label="Section navigation" className="hidden items-center gap-5 md:flex">
+              <a
+                href="#how-it-works-heading"
+                onClick={e => scrollToSection(e, 'how-it-works-heading')}
+                className={`rounded text-xs font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 ${FOCUS_RING}`}
+              >
+                How it works
+              </a>
+              <a
+                href="#all-results"
+                onClick={e => scrollToSection(e, 'all-results')}
+                className={`rounded text-xs font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 ${FOCUS_RING}`}
+              >
+                All results
+              </a>
+              <a
+                href="#review-queue"
+                onClick={e => scrollToSection(e, 'review-queue')}
+                className={`inline-flex items-center gap-1.5 rounded text-xs font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 ${FOCUS_RING}`}
+              >
+                <span>Review queue</span>
+                {pendingReviewCount > 0 && (
+                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                    {pendingReviewCount}
+                  </span>
+                )}
+              </a>
+            </nav>
           </div>
           <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
             <a
@@ -1152,7 +1306,11 @@ export default function RfpDashboard() {
             {dataReady ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
                 <span
-                  className={`size-2 rounded-full ${source === 'live' ? 'bg-teal-700 dark:bg-teal-400' : 'bg-slate-400'}`}
+                  className={`size-2 rounded-full ${
+                    source === 'live'
+                      ? 'bg-teal-700 ring-2 ring-teal-700/20 dark:bg-teal-400 dark:ring-teal-400/20'
+                      : 'bg-slate-400'
+                  }`}
                   aria-hidden="true"
                 />
                 {source === 'live' ? 'Live service connected' : 'Offline demo data'}
@@ -1188,7 +1346,7 @@ export default function RfpDashboard() {
         <main className="mx-auto max-w-[1440px] divide-y divide-slate-200 px-6 lg:px-10 dark:divide-slate-800">
           <TelemetryBar results={results} health={health} />
 
-          <section id="try-it" aria-labelledby="try-it-heading" className="scroll-mt-8 py-24">
+          <section id="try-it" aria-labelledby="try-it-heading" className="scroll-mt-24 py-24">
             <div className="mb-8">
               <h2 id="try-it-heading" className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                 Try a question
@@ -1197,11 +1355,16 @@ export default function RfpDashboard() {
                 Type a security question, or pick an example below.
               </p>
             </div>
-            <Sandbox onResult={r => setResults(current => [r, ...current])} onStepChange={setActive} />
+            <Sandbox
+              onResult={r => setResults(current => [r, ...current])}
+              onStepChange={setActive}
+              onInspectSource={setDrawer}
+              onReviewItem={setReview}
+            />
             <PipelineStepper active={active} />
           </section>
 
-          <section id="all-results" aria-labelledby="all-results-heading" className="scroll-mt-8 py-24">
+          <section id="all-results" aria-labelledby="all-results-heading" className="scroll-mt-24 py-24">
             <div className="mb-8">
               <h2
                 id="all-results-heading"
@@ -1223,6 +1386,35 @@ export default function RfpDashboard() {
           </section>
         </main>
       )}
+
+      <footer className="border-t border-slate-200 bg-white py-8 dark:border-slate-800 dark:bg-slate-900">
+        <div className="mx-auto flex max-w-[1440px] flex-col items-start justify-between gap-4 px-6 text-xs text-slate-500 sm:flex-row sm:items-center lg:px-10 dark:text-slate-400">
+          <p>RFP Auto-Responder · Grounded security questionnaire review with source citations and human review.</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <a
+              href="#try-it"
+              onClick={e => scrollToSection(e, 'try-it')}
+              className={`font-medium text-teal-700 hover:underline dark:text-teal-400 ${FOCUS_RING}`}
+            >
+              Try a question
+            </a>
+            <a
+              href="#all-results"
+              onClick={e => scrollToSection(e, 'all-results')}
+              className={`font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 ${FOCUS_RING}`}
+            >
+              All results
+            </a>
+            <a
+              href="#review-queue"
+              onClick={e => scrollToSection(e, 'review-queue')}
+              className={`font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 ${FOCUS_RING}`}
+            >
+              Review queue
+            </a>
+          </div>
+        </div>
+      </footer>
 
       {drawer && <CitationDrawer result={drawer} onClose={() => setDrawer(null)} />}
       {review && (
